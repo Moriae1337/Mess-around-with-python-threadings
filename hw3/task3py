@@ -1,0 +1,58 @@
+import ctypes
+import queue
+from concurrent.futures import ThreadPoolExecutor
+from time import time
+
+total_steps = ctypes.c_long(0)
+total_count = ctypes.c_long(0)
+
+def collatz_steps(n):
+    """Обчислює кількість кроків для виродження числа n в 1 за гіпотезою Колаца."""
+    steps = 0
+    while n != 1:
+        if n % 2 == 0:
+            n //= 2
+        else:
+            n = 3 * n + 1
+        steps += 1
+    return steps
+
+def worker(task_queue):
+    """Обробник, який бере завдання з черги і записує кількість кроків до атомарного лічильника."""
+    global total_steps, total_count
+    while not task_queue.empty():
+        try:
+            number = task_queue.get_nowait()
+            steps = collatz_steps(number)
+            
+            ctypes.windll.kernel32.InterlockedIncrement(ctypes.byref(total_steps))
+            ctypes.windll.kernel32.InterlockedExchangeAdd(ctypes.byref(total_steps), steps)
+            
+            ctypes.windll.kernel32.InterlockedIncrement(ctypes.byref(total_count))
+        except queue.Empty:
+            break
+
+def main():
+    N = 10_000_000
+    num_threads = 8
+    
+    task_queue = queue.Queue()
+    
+    for i in range(1, N + 1):
+        task_queue.put(i)
+    
+    start_time = time()
+    
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        for _ in range(num_threads):
+            executor.submit(worker, task_queue)
+    
+    end_time = time()
+    
+    average_steps = total_steps.value / total_count.value if total_count.value > 0 else 0
+    
+    print(f"Середня кількість кроків: {average_steps}")
+    print(f"Час виконання: {end_time - start_time:.2f} секунд")
+
+if __name__ == "__main__":
+    main()
